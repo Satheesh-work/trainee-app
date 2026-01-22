@@ -18,6 +18,7 @@ app.use(express.json());
 // Middleware to parse URL-encoded data (form data)
 app.use(express.urlencoded({ extended: true }));
 
+
 // Mount user routes at /api/users (prefix)
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -41,8 +42,7 @@ const startServer = async () => {
     
     // Start listening for requests
     app.listen(PORT, () => {
-      console.log(`Server is running on http://localhost:${PORT}`);
-      console.log(`API endpoints available at http://localhost:${PORT}/api/users`);
+      console.log(`Server is running`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);
