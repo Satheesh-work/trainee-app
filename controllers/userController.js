@@ -1,6 +1,6 @@
-const { pool } = require('../config/database');
+const { db } = require('../config/database');
 
-// Add a new user
+// CREATE - Add a new user
 exports.createUser = async (req, res, next) => {
   try {
     const { name, email, age } = req.body;
@@ -30,15 +30,19 @@ exports.createUser = async (req, res, next) => {
       });
     }
 
-    // Insert user into database
-    const query = 'INSERT INTO users (name, email, age) VALUES (?, ?, ?)';
-    const [result] = await pool.execute(query, [name, email, age || null]);
+    // Insert user using query builder
+    const [insertId] = await db('users')
+      .insert({
+        name,
+        email,
+        age: age || null
+      });
 
     res.status(201).json({
       success: true,
       message: 'User created successfully',
       data: {
-        id: result.insertId,
+        id: insertId,
         name,
         email,
         age: age || null
@@ -56,11 +60,12 @@ exports.createUser = async (req, res, next) => {
   }
 };
 
-// Get all users
+// READ - Get all users
 exports.getAllUsers = async (req, res, next) => {
   try {
-    const query = 'SELECT id, name, email, age, role, created_at FROM users ORDER BY created_at DESC';
-    const [users] = await pool.execute(query);
+    const users = await db('users')
+      .select('id', 'name', 'email', 'age', 'role', 'created_at')
+      .orderBy('created_at', 'desc');
 
     res.status(200).json({
       success: true,
@@ -72,7 +77,7 @@ exports.getAllUsers = async (req, res, next) => {
   }
 };
 
-// Get user by ID
+// READ - Get user by ID
 exports.getUserById = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -85,11 +90,13 @@ exports.getUserById = async (req, res, next) => {
       });
     }
 
-    const query = 'SELECT id, name, email, age, role, created_at FROM users WHERE id = ?';
-    const [users] = await pool.execute(query, [id]);
+    const user = await db('users')
+      .select('id', 'name', 'email', 'age', 'role', 'created_at')
+      .where({ id })
+      .first();
 
     // Check if user exists
-    if (users.length === 0) {
+    if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -98,19 +105,20 @@ exports.getUserById = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: users[0]
+      data: user
     });
   } catch (error) {
     next(error);
   }
 };
 
-// Update user details
+// UPDATE - Update user details
 exports.updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, email, age } = req.body;
 
+    // Validation: Check if ID is a number
     if (isNaN(id)) {
       return res.status(400).json({
         success: false,
@@ -126,6 +134,7 @@ exports.updateUser = async (req, res, next) => {
       });
     }
 
+    // Check if at least one field is provided for update
     if (!name && !email && age === undefined) {
       return res.status(400).json({
         success: false,
@@ -133,6 +142,7 @@ exports.updateUser = async (req, res, next) => {
       });
     }
 
+    // Validation: Check if age is a number
     if (age !== undefined && (isNaN(age) || age < 0)) {
       return res.status(400).json({
         success: false,
@@ -140,6 +150,7 @@ exports.updateUser = async (req, res, next) => {
       });
     }
 
+    // Email format validation
     if (email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
@@ -150,48 +161,42 @@ exports.updateUser = async (req, res, next) => {
       }
     }
 
-    const checkQuery = 'SELECT * FROM users WHERE id = ?';
-    const [existingUsers] = await pool.execute(checkQuery, [id]);
+    // Check if user exists
+    const existingUser = await db('users')
+      .where({ id })
+      .first();
 
-    if (existingUsers.length === 0) {
+    if (!existingUser) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
 
-    const updates = [];
-    const values = [];
+    // Build update object dynamically
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (age !== undefined) updateData.age = age;
 
-    if (name) {
-      updates.push('name = ?');
-      values.push(name);
-    }
-    if (email) {
-      updates.push('email = ?');
-      values.push(email);
-    }
-    if (age !== undefined) {
-      updates.push('age = ?');
-      values.push(age);
-    }
+    // Update user
+    await db('users')
+      .where({ id })
+      .update(updateData);
 
-    values.push(id);
-
-    const updateQuery = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
-    await pool.execute(updateQuery, values);
-
-    const [updatedUsers] = await pool.execute(
-      'SELECT id, name, email, age, role, created_at FROM users WHERE id = ?',
-      [id]
-    );
+    // Fetch updated user
+    const updatedUser = await db('users')
+      .select('id', 'name', 'email', 'age', 'role', 'created_at')
+      .where({ id })
+      .first();
 
     res.status(200).json({
       success: true,
       message: 'User updated successfully',
-      data: updatedUsers[0]
+      data: updatedUser
     });
   } catch (error) {
+    // Handle duplicate email error
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({
         success: false,
@@ -202,11 +207,12 @@ exports.updateUser = async (req, res, next) => {
   }
 };
 
-// Delete a user
+// DELETE - Delete a user
 exports.deleteUser = async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    // Validation: Check if ID is a number
     if (isNaN(id)) {
       return res.status(400).json({
         success: false,
@@ -222,18 +228,22 @@ exports.deleteUser = async (req, res, next) => {
       });
     }
 
-    const checkQuery = 'SELECT * FROM users WHERE id = ?';
-    const [existingUsers] = await pool.execute(checkQuery, [id]);
+    // Check if user exists
+    const existingUser = await db('users')
+      .where({ id })
+      .first();
 
-    if (existingUsers.length === 0) {
+    if (!existingUser) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
 
-    const deleteQuery = 'DELETE FROM users WHERE id = ?';
-    await pool.execute(deleteQuery, [id]);
+    // Delete user
+    await db('users')
+      .where({ id })
+      .del();
 
     res.status(200).json({
       success: true,

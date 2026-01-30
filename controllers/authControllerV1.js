@@ -1,4 +1,4 @@
-const { db } = require('../config/database');
+const { pool } = require('../config/database');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
@@ -8,11 +8,12 @@ exports.register = async (req, res, next) => {
     const { name, email, password, age } = req.body;
 
     // Check if user already exists
-    const existingUser = await db('users')
-      .where({ email })
-      .first();
+    const [existingUsers] = await pool.execute(
+      'SELECT * FROM users WHERE email = ?',
+      [email]
+    );
 
-    if (existingUser) {
+    if (existingUsers.length > 0) {
       return res.status(409).json({
         success: false,
         message: 'Email already registered'
@@ -24,18 +25,18 @@ exports.register = async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // Create user
-    const [insertId] = await db('users')
-      .insert({
-        name,
-        email,
-        password: hashedPassword,
-        age: age || null,
-        role: 'user'
-      });
+    const query = 'INSERT INTO users (name, email, password, age, role) VALUES (?, ?, ?, ?, ?)';
+    const [result] = await pool.execute(query, [
+      name,
+      email,
+      hashedPassword,
+      age || null,
+      'user'
+    ]);
 
     // Generate JWT token
     const token = jwt.sign(
-      { id: insertId, email, role: 'user' },
+      { id: result.insertId, email, role: 'user' },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRE }
     );
@@ -45,7 +46,7 @@ exports.register = async (req, res, next) => {
       message: 'User registered successfully',
       token,
       data: {
-        id: insertId,
+        id: result.insertId,
         name,
         email,
         age: age || null,
@@ -63,16 +64,19 @@ exports.login = async (req, res, next) => {
     const { email, password } = req.body;
 
     // Check if user exists
-    const user = await db('users')
-      .where({ email })
-      .first();
+    const [users] = await pool.execute(
+      'SELECT * FROM users WHERE email = ?',
+      [email]
+    );
 
-    if (!user) {
+    if (users.length === 0) {
       return res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
     }
+
+    const user = users[0];
 
     // Check password
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -112,12 +116,12 @@ exports.login = async (req, res, next) => {
 exports.getProfile = async (req, res, next) => {
   try {
     // req.user is set by auth middleware
-    const user = await db('users')
-      .select('id', 'name', 'email', 'age', 'role', 'created_at')
-      .where({ id: req.user.id })
-      .first();
+    const [users] = await pool.execute(
+      'SELECT id, name, email, age, role, created_at FROM users WHERE id = ?',
+      [req.user.id]
+    );
 
-    if (!user) {
+    if (users.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
@@ -126,7 +130,7 @@ exports.getProfile = async (req, res, next) => {
 
     res.status(200).json({
       success: true,
-      data: user
+      data: users[0]
     });
   } catch (error) {
     next(error);
@@ -139,16 +143,12 @@ exports.updatePassword = async (req, res, next) => {
     const { currentPassword, newPassword } = req.body;
 
     // Get user with password
-    const user = await db('users')
-      .where({ id: req.user.id })
-      .first();
+    const [users] = await pool.execute(
+      'SELECT * FROM users WHERE id = ?',
+      [req.user.id]
+    );
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
+    const user = users[0];
 
     // Check current password
     const isPasswordValid = await bcrypt.compare(currentPassword, user.password);
@@ -165,9 +165,10 @@ exports.updatePassword = async (req, res, next) => {
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
     // Update password
-    await db('users')
-      .where({ id: req.user.id })
-      .update({ password: hashedPassword });
+    await pool.execute(
+      'UPDATE users SET password = ? WHERE id = ?',
+      [hashedPassword, req.user.id]
+    );
 
     res.status(200).json({
       success: true,
