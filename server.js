@@ -5,6 +5,7 @@ const express = require('express');
 const { testConnection } = require('./config/database');
 const userRoutes = require('./routes/userRoutes');
 const authRoutes = require('./routes/authRoutes');
+const demoRoutes = require('./routes/demoRoutes');
 const errorHandler = require('./middleware/errorHandler');
 
 // Initialize Express app
@@ -22,6 +23,7 @@ app.use(express.urlencoded({ extended: true }));
 // Mount user routes at /api/users (prefix)
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/demo', demoRoutes);
 
 // Handle 404 - Route not found
 app.use((req, res) => {
@@ -32,14 +34,14 @@ app.use((req, res) => {
 });
 
 // Global error handler - Custom middleware
-app.use(errorHandler); 
+app.use(errorHandler);
 
 // Start server and test database connection
 const startServer = async () => {
   try {
     // Test database connection first
     await testConnection();
-    
+
     // Start listening for requests
     app.listen(PORT, () => {
       console.log(`Server is running`);
